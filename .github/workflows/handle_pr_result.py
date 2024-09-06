@@ -3,26 +3,22 @@ import subprocess
 from github import Github
 
 def comment_on_pr(repo, pr_number, message):
+    """在 PR 上添加评论"""
     pr = repo.get_pull(pr_number)
     pr.create_issue_comment(message)
     print(f"已在 PR #{pr_number} 上评论：{message}")
 
-def merge_pr_if_passed(repo, pr_number):
-    pr = repo.get_pull(pr_number)
-    pr.merge(merge_method='squash')
-    print(f"PR #{pr_number} 已成功合并。")
-
-def close_pr(repo, pr_number):
-    pr = repo.get_pull(pr_number)
-    pr.edit(state='closed')
-    print(f"PR #{pr_number} 已关闭。")
-
 def run_virus_scan(zip_files):
+    """使用 ClamAV 对给定的 zip 文件列表进行病毒扫描"""
     log_filename = "virus_scan.log"
+    print("正在更新 ClamAV 病毒数据库...")
 
     # 更新 ClamAV 病毒数据库
-    print("正在更新 ClamAV 病毒数据库...")
-    subprocess.run(["freshclam"])
+    try:
+        subprocess.run(["freshclam"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"ClamAV 数据库更新失败：{e}")
+        return False, log_filename
 
     # 使用 ClamAV 扫描所有 zip 文件
     with open(log_filename, "w") as log_file:
@@ -30,18 +26,17 @@ def run_virus_scan(zip_files):
             print(f"开始使用 ClamAV 扫描 {zip_file}...")
             clamav_result = subprocess.run(["clamscan", "--archive-verbose", zip_file], stdout=log_file, stderr=subprocess.STDOUT)
             if clamav_result.returncode == 1:
-                # 检查扫描结果是否包含高威胁的关键词
                 log_file.seek(0)
                 scan_result = log_file.read()
                 if "Virus" in scan_result or "Malware" in scan_result:
                     print(f"ClamAV 扫描发现 {zip_file} 中存在高威胁病毒或恶意软件。请查看日志。")
                     return False, log_filename
-                else:
-                    print(f"扫描通过，继续执行。")
+            print(f"{zip_file} 扫描通过，无病毒。")
 
     return True, log_filename
 
 def handle_pr_result():
+    """处理 PR 的结果，执行病毒扫描"""
     GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
     REPO_NAME = os.getenv('GITHUB_REPOSITORY')
 
@@ -50,7 +45,7 @@ def handle_pr_result():
 
     open_prs = repo.get_pulls(state='open')
     if open_prs.totalCount == 0:
-        print("没有打开的 PR,结束脚本。")
+        print("没有打开的 PR, 结束脚本。")
         return
 
     for pr in open_prs:
@@ -68,14 +63,13 @@ def handle_pr_result():
         # 执行病毒扫描
         scan_passed, log_filename = run_virus_scan(zip_files)
 
+        # 将扫描结果发送至 PR 评论
         if scan_passed:
-            comment_on_pr(repo, pr_number, "插件病毒扫描通过,正在合并 PR...")
-            merge_pr_if_passed(repo, pr_number)
+            comment_on_pr(repo, pr_number, "插件病毒扫描通过，无病毒。")
         else:
             with open(log_filename, "r") as log_file:
                 log_content = log_file.read()
             comment_on_pr(repo, pr_number, f"插件病毒扫描失败。以下是日志：\n\n```\n{log_content}\n```")
-            close_pr(repo, pr_number)
 
 if __name__ == '__main__':
     handle_pr_result()
