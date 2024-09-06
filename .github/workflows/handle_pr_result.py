@@ -1,6 +1,10 @@
 import os
 import requests
 from github import Github
+import time
+
+# VirusTotal API 密钥
+VIRUSTOTAL_API_KEY = '65ec907912bd4e75751d820c3957aef618a01e7ac996cf58953985c254395355'
 
 def comment_on_pr(repo, pr_number, message):
     """在 PR 上添加评论"""
@@ -8,47 +12,54 @@ def comment_on_pr(repo, pr_number, message):
     pr.create_issue_comment(message)
     print(f"已在 PR #{pr_number} 上评论：{message}")
 
-def run_virus_scan(zip_files):
-    """使用 VirusTotal 对给定的 zip 文件列表进行病毒扫描"""
-    api_key = '65ec907912bd4e75751d820c3957aef618a01e7ac996cf58953985c254395355'
-    virus_total_url = 'https://www.virustotal.com/vtapi/v2/file/scan'
-    headers = {"x-apikey": api_key}
-    scan_results = {}
+def scan_file_with_virustotal(file_path):
+    """使用 VirusTotal API 对文件进行扫描"""
+    print(f"开始使用 VirusTotal 扫描 {file_path}...")
 
-    for zip_file in zip_files:
-        print(f"开始使用 VirusTotal 扫描 {zip_file}...")
+    # 上传文件至 VirusTotal
+    url = 'https://www.virustotal.com/api/v3/files'
+    headers = {
+        'x-apikey': VIRUSTOTAL_API_KEY
+    }
+    files = {'file': (os.path.basename(file_path), open(file_path, 'rb'))}
+    
+    try:
+        response = requests.post(url, headers=headers, files=files)
+        response.raise_for_status()  # 检查请求是否成功
+    except requests.exceptions.RequestException as e:
+        print(f"文件上传失败：{e}")
+        return False, None
 
-        # 上传文件进行扫描
-        with open(zip_file, 'rb') as file:
-            files = {'file': (os.path.basename(zip_file), file)}
-            response = requests.post(virus_total_url, files=files, headers=headers)
-        
-        if response.status_code == 200:
-            scan_id = response.json().get('scan_id')
-            scan_results[zip_file] = scan_id
-            print(f"{zip_file} 上传成功，扫描 ID: {scan_id}")
-        else:
-            print(f"上传 {zip_file} 失败，状态码：{response.status_code}，响应：{response.text}")
-            return False, None
+    # 获取文件扫描 ID
+    scan_id = response.json().get('data', {}).get('id')
+    if not scan_id:
+        print("无法获取扫描 ID。")
+        return False, None
 
-    # 等待并获取扫描结果
-    report_url = 'https://www.virustotal.com/vtapi/v2/file/report'
-    for zip_file, scan_id in scan_results.items():
-        params = {'apikey': api_key, 'resource': scan_id}
-        response = requests.get(report_url, params=params)
+    print(f"文件 {file_path} 上传成功，扫描 ID: {scan_id}")
 
-        if response.status_code == 200:
-            scan_data = response.json()
-            if scan_data['positives'] > 0:
-                print(f"VirusTotal 扫描发现 {zip_file} 中存在病毒或恶意软件。")
-                return False, scan_data
+    # 查询扫描结果
+    result_url = f"https://www.virustotal.com/api/v3/analyses/{scan_id}"
+    while True:
+        try:
+            result_response = requests.get(result_url, headers=headers)
+            result_response.raise_for_status()
+            result_data = result_response.json()
+            
+            status = result_data.get('data', {}).get('attributes', {}).get('status')
+            if status == 'completed':
+                print(f"文件 {file_path} 的扫描完成。")
+                stats = result_data['data']['attributes']['stats']
+                return True, stats
+            elif status == 'queued':
+                print(f"文件 {file_path} 的扫描在队列中，等待中...")
+                time.sleep(10)
             else:
-                print(f"{zip_file} 扫描通过，无病毒。")
-        else:
-            print(f"获取 {zip_file} 的扫描结果失败，状态码：{response.status_code}，响应：{response.text}")
+                print(f"未知状态：{status}")
+                return False, None
+        except requests.exceptions.RequestException as e:
+            print(f"获取扫描结果失败：{e}")
             return False, None
-
-    return True, None
 
 def handle_pr_result():
     """处理 PR 的结果，执行病毒扫描"""
@@ -76,17 +87,29 @@ def handle_pr_result():
                     zip_files.append(os.path.join(root, file))
 
         # 执行病毒扫描
-        scan_passed, scan_data = run_virus_scan(zip_files)
+        all_scans_passed = True
+        for zip_file in zip_files:
+            scan_passed, stats = scan_file_with_virustotal(zip_file)
 
-        # 将扫描结果发送至 PR 评论
-        if scan_passed:
-            comment_on_pr(repo, pr_number, "插件病毒扫描通过，无病毒。")
-        else:
-            if scan_data:
-                log_content = f"发现病毒或恶意软件：\n\n{scan_data}"
+            if scan_passed:
+                # 如果扫描成功，检查是否有检测到病毒
+                if stats['malicious'] > 0:
+                    all_scans_passed = False
+                    message = f"文件 {zip_file} 的 VirusTotal 扫描发现 {stats['malicious']} 个恶意检测。\n"
+                    comment_on_pr(repo, pr_number, message)
+                else:
+                    message = f"文件 {zip_file} 的 VirusTotal 扫描通过，无恶意软件。\n"
+                    comment_on_pr(repo, pr_number, message)
             else:
-                log_content = "病毒扫描失败，无法获取详细信息。"
-            comment_on_pr(repo, pr_number, f"插件病毒扫描失败。以下是日志：\n\n```\n{log_content}\n```")
+                all_scans_passed = False
+                message = f"文件 {zip_file} 的 VirusTotal 扫描失败。"
+                comment_on_pr(repo, pr_number, message)
+
+        # 最终结果输出
+        if all_scans_passed:
+            comment_on_pr(repo, pr_number, "所有文件的病毒扫描通过，无病毒。")
+        else:
+            comment_on_pr(repo, pr_number, "病毒扫描检测到恶意软件，请查看上面的详细结果。")
 
 if __name__ == '__main__':
     handle_pr_result()
