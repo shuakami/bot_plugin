@@ -1,4 +1,5 @@
 import os
+import subprocess
 from github import Github
 
 def comment_on_pr(repo, pr_number, message):
@@ -15,6 +16,27 @@ def close_pr(repo, pr_number):
     pr = repo.get_pull(pr_number)
     pr.edit(state='closed')
     print(f"PR #{pr_number} 已关闭。")
+
+def run_security_checks():
+    log_filename = "security_scan.log"
+
+    # 运行 bandit 检查代码漏洞
+    with open(log_filename, "w") as log_file:
+        print("开始运行 Bandit 检查...")
+        bandit_result = subprocess.run(["bandit", "-r", "."], stdout=log_file, stderr=subprocess.STDOUT)
+        if bandit_result.returncode != 0:
+            print("Bandit 检查发现问题。请查看日志。")
+            return False, log_filename
+
+    # 运行 safety 检查依赖项漏洞
+    with open(log_filename, "a") as log_file:
+        print("开始运行 Safety 检查...")
+        safety_result = subprocess.run(["safety", "check"], stdout=log_file, stderr=subprocess.STDOUT)
+        if safety_result.returncode != 0:
+            print("Safety 检查发现问题。请查看日志。")
+            return False, log_filename
+
+    return True, log_filename
 
 def handle_pr_result():
     GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
@@ -33,21 +55,17 @@ def handle_pr_result():
         pr_title = pr.title
         print(f"开始处理 PR #{pr_number}：{pr_title}")
 
-        # 模拟安全检查
-        validation_passed = perform_security_checks(pr_number)
+        # 执行安全检查
+        validation_passed, log_filename = run_security_checks()
 
         if validation_passed:
             comment_on_pr(repo, pr_number, "插件安全检查通过，正在合并 PR...")
             merge_pr_if_passed(repo, pr_number)
         else:
-            comment_on_pr(repo, pr_number, "插件安全检查失败，PR 将被关闭。")
+            with open(log_filename, "r") as log_file:
+                log_content = log_file.read()
+            comment_on_pr(repo, pr_number, f"插件安全检查失败。以下是日志：\n\n```\n{log_content}\n```")
             close_pr(repo, pr_number)
-
-def perform_security_checks(pr_number):
-    # 这里应该执行真正的安全检查逻辑，可以替换为你自己的安全检查工具。
-    print(f"对 PR #{pr_number} 进行安全检查...")
-    # 模拟检查通过
-    return True
 
 if __name__ == '__main__':
     handle_pr_result()
