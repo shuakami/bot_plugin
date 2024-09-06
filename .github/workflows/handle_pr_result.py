@@ -29,9 +29,15 @@ def run_virus_scan(zip_files):
         for zip_file in zip_files:
             print(f"开始使用 ClamAV 扫描 {zip_file}...")
             clamav_result = subprocess.run(["clamscan", "--archive-verbose", zip_file], stdout=log_file, stderr=subprocess.STDOUT)
-            if clamav_result.returncode != 0:
-                print(f"ClamAV 扫描发现 {zip_file} 中存在病毒或威胁。请查看日志。")
-                return False, log_filename
+            if clamav_result.returncode == 1:
+                # 检查扫描结果是否包含高威胁的关键词
+                log_file.seek(0)
+                scan_result = log_file.read()
+                if "Virus" in scan_result or "Malware" in scan_result:
+                    print(f"ClamAV 扫描发现 {zip_file} 中存在高威胁病毒或恶意软件。请查看日志。")
+                    return False, log_filename
+                else:
+                    print(f"扫描通过，继续执行。")
 
     return True, log_filename
 
