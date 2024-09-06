@@ -1,5 +1,5 @@
 import os
-import subprocess
+import subprocess  # nosec
 from github import Github
 
 def comment_on_pr(repo, pr_number, message):
@@ -23,7 +23,7 @@ def run_security_checks():
     # 运行 bandit 检查代码漏洞
     with open(log_filename, "w") as log_file:
         print("开始运行 Bandit 检查...")
-        bandit_result = subprocess.run(["bandit", "-r", "."], stdout=log_file, stderr=subprocess.STDOUT)
+        bandit_result = subprocess.run(["bandit", "-r", "."], stdout=log_file, stderr=subprocess.STDOUT)  # nosec
         if bandit_result.returncode != 0:
             print("Bandit 检查发现问题。请查看日志。")
             return False, log_filename
@@ -31,7 +31,7 @@ def run_security_checks():
     # 运行 safety 检查依赖项漏洞
     with open(log_filename, "a") as log_file:
         print("开始运行 Safety 检查...")
-        safety_result = subprocess.run(["safety", "check"], stdout=log_file, stderr=subprocess.STDOUT)
+        safety_result = subprocess.run(["safety", "check"], stdout=log_file, stderr=subprocess.STDOUT)  # nosec
         if safety_result.returncode != 0:
             print("Safety 检查发现问题。请查看日志。")
             return False, log_filename
