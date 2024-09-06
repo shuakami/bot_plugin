@@ -17,18 +17,18 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies (security libraries)
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bandit safety
+          pip install PyGithub
+
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-daemon
 
       - name: Validate PR structure
         run: python .github/workflows/validate_pr.py
-
-      - name: Run security scan using bandit and safety
-        run: |
-          bandit -r .
-          safety check
 
       - name: Process PR Result
         run: python .github/workflows/handle_pr_result.py
