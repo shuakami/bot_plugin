@@ -24,16 +24,17 @@ jobs:
 
       - name: Install ClamAV
         run: |
-         sudo apt-get update
-         sudo apt-get install -y clamav clamav-daemon
-         sudo mkdir -p /var/log/clamav
-         sudo touch /var/log/clamav/freshclam.log
-         sudo chmod 777 /var/log/clamav/freshclam.log
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-daemon
+          sudo systemctl stop clamav-freshclam
 
       - name: Validate PR structure
         run: python .github/workflows/validate_pr.py
 
       - name: Process PR Result
-        run: python .github/workflows/handle_pr_result.py
+        run: |
+          sudo freshclam
+          python .github/workflows/handle_pr_result.py
+          sudo systemctl start clamav-freshclam
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
