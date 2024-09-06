@@ -1,5 +1,5 @@
 import os
-import subprocess
+import requests
 from github import Github
 
 def comment_on_pr(repo, pr_number, message):
@@ -9,31 +9,46 @@ def comment_on_pr(repo, pr_number, message):
     print(f"已在 PR #{pr_number} 上评论：{message}")
 
 def run_virus_scan(zip_files):
-    """使用 ClamAV 对给定的 zip 文件列表进行病毒扫描"""
-    log_filename = "virus_scan.log"
-    print("正在更新 ClamAV 病毒数据库...")
+    """使用 VirusTotal 对给定的 zip 文件列表进行病毒扫描"""
+    api_key = '65ec907912bd4e75751d820c3957aef618a01e7ac996cf58953985c254395355'
+    virus_total_url = 'https://www.virustotal.com/vtapi/v2/file/scan'
+    headers = {"x-apikey": api_key}
+    scan_results = {}
 
-    # 更新 ClamAV 病毒数据库
-    try:
-        subprocess.run(["freshclam"], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"ClamAV 数据库更新失败：{e}")
-        return False, log_filename
+    for zip_file in zip_files:
+        print(f"开始使用 VirusTotal 扫描 {zip_file}...")
 
-    # 使用 ClamAV 扫描所有 zip 文件
-    with open(log_filename, "w") as log_file:
-        for zip_file in zip_files:
-            print(f"开始使用 ClamAV 扫描 {zip_file}...")
-            clamav_result = subprocess.run(["clamscan", "--archive-verbose", zip_file], stdout=log_file, stderr=subprocess.STDOUT)
-            if clamav_result.returncode == 1:
-                log_file.seek(0)
-                scan_result = log_file.read()
-                if "Virus" in scan_result or "Malware" in scan_result:
-                    print(f"ClamAV 扫描发现 {zip_file} 中存在高威胁病毒或恶意软件。请查看日志。")
-                    return False, log_filename
-            print(f"{zip_file} 扫描通过，无病毒。")
+        # 上传文件进行扫描
+        with open(zip_file, 'rb') as file:
+            files = {'file': (os.path.basename(zip_file), file)}
+            response = requests.post(virus_total_url, files=files, headers=headers)
+        
+        if response.status_code == 200:
+            scan_id = response.json().get('scan_id')
+            scan_results[zip_file] = scan_id
+            print(f"{zip_file} 上传成功，扫描 ID: {scan_id}")
+        else:
+            print(f"上传 {zip_file} 失败，状态码：{response.status_code}，响应：{response.text}")
+            return False, None
 
-    return True, log_filename
+    # 等待并获取扫描结果
+    report_url = 'https://www.virustotal.com/vtapi/v2/file/report'
+    for zip_file, scan_id in scan_results.items():
+        params = {'apikey': api_key, 'resource': scan_id}
+        response = requests.get(report_url, params=params)
+
+        if response.status_code == 200:
+            scan_data = response.json()
+            if scan_data['positives'] > 0:
+                print(f"VirusTotal 扫描发现 {zip_file} 中存在病毒或恶意软件。")
+                return False, scan_data
+            else:
+                print(f"{zip_file} 扫描通过，无病毒。")
+        else:
+            print(f"获取 {zip_file} 的扫描结果失败，状态码：{response.status_code}，响应：{response.text}")
+            return False, None
+
+    return True, None
 
 def handle_pr_result():
     """处理 PR 的结果，执行病毒扫描"""
@@ -61,14 +76,16 @@ def handle_pr_result():
                     zip_files.append(os.path.join(root, file))
 
         # 执行病毒扫描
-        scan_passed, log_filename = run_virus_scan(zip_files)
+        scan_passed, scan_data = run_virus_scan(zip_files)
 
         # 将扫描结果发送至 PR 评论
         if scan_passed:
             comment_on_pr(repo, pr_number, "插件病毒扫描通过，无病毒。")
         else:
-            with open(log_filename, "r") as log_file:
-                log_content = log_file.read()
+            if scan_data:
+                log_content = f"发现病毒或恶意软件：\n\n{scan_data}"
+            else:
+                log_content = "病毒扫描失败，无法获取详细信息。"
             comment_on_pr(repo, pr_number, f"插件病毒扫描失败。以下是日志：\n\n```\n{log_content}\n```")
 
 if __name__ == '__main__':
