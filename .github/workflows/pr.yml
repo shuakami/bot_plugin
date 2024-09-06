@@ -20,21 +20,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install PyGithub
-
-      - name: Install ClamAV
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clamav clamav-daemon
-          sudo systemctl stop clamav-freshclam
+          pip install PyGithub requests
 
       - name: Validate PR structure
         run: python .github/workflows/validate_pr.py
 
       - name: Process PR Result
-        run: |
-          sudo freshclam
-          python .github/workflows/handle_pr_result.py
-          sudo systemctl start clamav-freshclam
+        run: python .github/workflows/handle_pr_result.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
