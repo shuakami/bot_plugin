@@ -1,9 +1,13 @@
 name: Validate and Merge Plugin PR
 
+# 监听所有 PR 和所有新分支的推送
 on:
   pull_request:
     branches:
-      - main
+      - '**'  # 监听所有分支的 PR 创建
+  push:
+    branches:
+      - '**'  # 监听所有新分支的推送
 
 jobs:
   validate-pr:
@@ -18,7 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'  # You can choose the version that matches your dependencies
+          python-version: '3.9'
 
       # Step 3: Install dependencies (security libraries)
       - name: Install dependencies
@@ -26,7 +30,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install bandit safety
 
-      # Step 4: Validate PR structure (ensure correct files exist in PR)
+      # Step 4: Validate PR structure
       - name: Validate PR structure
         run: python .github/workflows/validate_pr.py
 
@@ -36,7 +40,7 @@ jobs:
           bandit -r .
           safety check
 
-      # Step 6: Comment on PR and handle merge based on validation
+      # Step 6: Handle PR Result
       - name: Handle PR Result
         run: python .github/workflows/handle_pr_result.py
         env:
