@@ -1,0 +1,43 @@
+name: Validate and Merge Plugin PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the PR code
+      - name: Check out the code
+        uses: actions/checkout@v3
+      
+      # Step 2: Set up Python environment
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'  # You can choose the version that matches your dependencies
+
+      # Step 3: Install dependencies (security libraries)
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+
+      # Step 4: Validate PR structure (ensure correct files exist in PR)
+      - name: Validate PR structure
+        run: python .github/workflows/validate_pr.py
+
+      # Step 5: Run security scan using bandit and safety
+      - name: Run security scan
+        run: |
+          bandit -r .
+          safety check
+
+      # Step 6: Comment on PR and handle merge based on validation
+      - name: Handle PR Result
+        run: python .github/workflows/handle_pr_result.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
