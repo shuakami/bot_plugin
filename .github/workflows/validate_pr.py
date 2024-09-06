@@ -21,8 +21,6 @@ def validate_pr_structure():
                 found_image = True
             elif file.endswith('.json'):
                 found_json = True
-            elif file == 'checksum.txt':
-                optional_files.remove('checksum.txt')
 
     if not found_zip:
         missing_files.append('插件 ZIP 文件')
