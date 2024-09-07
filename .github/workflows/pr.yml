@@ -1,0 +1,55 @@
+name: Validate and Merge Plugin PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyGithub requests
+
+      - name: Validate PR structure
+        run: python .github/workflows/validate_pr.py
+
+      - name: Install ClamAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clamav clamav-daemon
+
+      - name: Stop ClamAV Services
+        run: |
+          sudo systemctl stop clamav-freshclam
+          sudo systemctl stop clamav-daemon
+
+      - name: Update ClamAV Virus Database
+        run: |
+          sudo freshclam
+
+      - name: Start ClamAV Services
+        run: |
+          sudo systemctl start clamav-freshclam
+          sudo systemctl start clamav-daemon
+
+      - name: Scan all ZIP files in the PR with ClamAV
+        run: |
+          mkdir -p scan_results
+          find plugins -type f -name '*.zip' -exec clamscan --infected --remove --recursive --stdout {} + | tee scan_results/clamav_scan_summary.txt
+
+      - name: Process ClamAV Scan Results
+        run: python .github/workflows/handle_pr_result.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
